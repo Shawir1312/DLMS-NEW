@@ -101,22 +101,42 @@ void printBootBanner() {
     Serial.println();
 }
 
+// Helper animasi boot progress bar bertahap halus (total durasi boot ~5 detik)
+static void animateBootProgress(uint8_t fromPct, uint8_t toPct, const char* msg, uint32_t durationMs) {
+    if (fromPct > toPct) fromPct = toPct;
+    uint32_t startTime = millis();
+    uint8_t lastPct = 255;
+
+    while (true) {
+        uint32_t elapsed = millis() - startTime;
+        if (elapsed >= durationMs) break;
+        uint8_t currentPct = fromPct + (uint8_t)(((uint32_t)(toPct - fromPct) * elapsed) / durationMs);
+        if (currentPct != lastPct) {
+            tftDisplay.drawBootScreen(currentPct, msg);
+            lastPct = currentPct;
+        }
+        delay(15);
+        yield();
+    }
+    tftDisplay.drawBootScreen(toPct, msg);
+}
+
 void setup() {
     // 1. Inisialisasi Serial Debug
     Serial.begin(SERIAL_DEBUG_BAUD);
-    delay(200);
+    delay(100);
     printBootBanner();
 
-    // 2. Inisialisasi Layar TFT ST7735 1.8" & Tampilkan Layar Booting Segera
+    // 2. Inisialisasi Layar TFT ST7735 1.8" & Tampilkan Layar Booting Segera (0% - 20%)
     tftDisplay.begin();
-    tftDisplay.drawBootScreen(15, "Inisialisasi sistem...");
-    delay(100);
+    animateBootProgress(0, 20, "Inisialisasi sistem...", 650);
 
-    // 3. Inisialisasi Storage Manager & Muat Preset
-    tftDisplay.drawBootScreen(35, "Mounting Flash Storage...");
+    // 3. Inisialisasi Storage Manager (20% - 40%)
     storageManager.begin();
+    animateBootProgress(20, 40, "Mounting Flash Storage...", 650);
+
+    // 4. Memeriksa Slot Aktif & Muat Konfigurasi Preset (40% - 55%)
     static DspPreset activePreset;
-    tftDisplay.drawBootScreen(50, "Memeriksa slot aktif...");
     if (storageManager.loadPreset(storageManager.getCurrentSlot(), activePreset)) {
         Serial.printf("[Storage] Preset aktif dimuat: Slot %u (\"%s\")\n",
                       storageManager.getCurrentSlot(), activePreset.name);
@@ -124,41 +144,38 @@ void setup() {
         activePreset = StorageManager::getFactoryPreset();
         Serial.println("[Storage] Memakai Factory Default Preset");
     }
-    delay(120);
+    animateBootProgress(40, 55, "Memeriksa slot aktif...", 550);
 
-    // 4. Inisialisasi DSP Engine (Core 1) — Persis 66% sesuai referensi UI Menu LCD
-    tftDisplay.drawBootScreen(66, "Memuat preset terakhir...");
+    // 5. Inisialisasi DSP Engine (Core 1) (55% - 75%, menyorot 66% sesuai referensi UI Menu LCD)
     dspEngine.init(AUDIO_SAMPLE_RATE);
     dspEngine.setConfig(activePreset);
-    delay(200);
+    animateBootProgress(55, 66, "Memuat preset terakhir...", 550);
+    animateBootProgress(66, 75, "Konfigurasi Biquad Core...", 450);
 
-    // 5. Inisialisasi Hardware I2S Duplex (Bluetooth Slave Input + Dual DAC)
-    tftDisplay.drawBootScreen(82, "Driver I2S Duplex...");
+    // 6. Inisialisasi Hardware I2S Duplex (75% - 85%)
     if (i2sDuplex.begin(AUDIO_SAMPLE_RATE)) {
         Serial.println("[I2S] Bluetooth Slave + Dual DAC Driver: READY");
     } else {
         Serial.println("[I2S] ERROR menginisialisasi I2S Duplex!");
     }
-    delay(150);
+    animateBootProgress(75, 85, "Driver I2S Duplex...", 650);
 
-    // 6. Inisialisasi Rotary Encoder & Tombol K0
-    tftDisplay.drawBootScreen(90, "Encoder EC11 & K0...");
+    // 7. Inisialisasi Rotary Encoder & Tombol K0 (85% - 92%)
     rotaryControl.begin();
     Serial.printf("[Control] Encoder EC11 & K0: READY (CLK=%d, DT=%d, SW=%d, K0=%d)\n",
                   ENCODER_CLK_PIN, ENCODER_DT_PIN, ENCODER_SW_PIN, BUTTON_K0_PIN);
-    delay(100);
+    animateBootProgress(85, 92, "Encoder EC11 & K0...", 500);
 
-    // 7. Inisialisasi Web Server & WiFi SoftAP
-    tftDisplay.drawBootScreen(96, "Web Server SoftAP...");
+    // 8. Inisialisasi Web Server & WiFi SoftAP (92% - 98%)
     webServerDsp.begin();
     Serial.printf("[Web] Remote Dashboard: http://%s\n", webServerDsp.getIpAddress().c_str());
-    delay(150);
+    animateBootProgress(92, 98, "Web Server SoftAP...", 500);
 
-    // 8. Booting Selesai 100%
-    tftDisplay.drawBootScreen(100, "Sistem siap!");
-    delay(400);
+    // 9. Booting Selesai 100% (98% - 100% lalu tahan tampilan)
+    animateBootProgress(98, 100, "Sistem siap!", 200);
+    delay(500); // Tahan tampilan 100% "Sistem siap!" selama 0.5 detik
 
-    // 9. Buat Task Real-Time Audio di Core 1 (Prioritas 5)
+    // 10. Buat Task Real-Time Audio di Core 1 (Prioritas 5)
     xTaskCreatePinnedToCore(
         audioTask,
         "audio_task",
