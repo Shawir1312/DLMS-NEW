@@ -53,15 +53,6 @@ public:
         float out = in * c.b0 + s1;
         s1 = in * c.b1 - out * c.a1 + s2;
         s2 = in * c.b2 - out * c.a2;
-
-        // Anti-denormal & NaN / unstable guard (flush-to-zero)
-        if (fabsf(s1) < 1e-15f) s1 = 0.0f;
-        if (fabsf(s2) < 1e-15f) s2 = 0.0f;
-        if (isnan(out) || isinf(out) || fabsf(out) > 8.0f) {
-            out = 0.0f;
-            s1 = 0.0f;
-            s2 = 0.0f;
-        }
         return out;
     }
 

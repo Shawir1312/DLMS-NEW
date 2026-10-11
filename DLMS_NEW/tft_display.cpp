@@ -1395,12 +1395,12 @@ void TftDisplay::renderSetupScreen() {
             canvas.setCursor(118, 16); canvas.printf("%ddBm", WiFi.RSSI());
         }
     } else { // DSP_WIFI_AP
-        canvas.setTextColor(COLOR_WHITE);
-        canvas.setCursor(26, 15); canvas.print("AP aktif");
         canvas.setTextColor(COLOR_CYAN);
-        canvas.setCursor(26, 23); canvas.print(webServerDsp.getSsid().c_str());
+        canvas.setCursor(26, 15); canvas.printf("AP: %s", webServerDsp.getSsid().c_str());
+        canvas.setTextColor(COLOR_WHITE);
+        canvas.setCursor(26, 23); canvas.printf("Pass: %s", webServerDsp.getPassword().c_str());
         canvas.setTextColor(COLOR_GRAY);
-        canvas.setCursor(26, 31); canvas.print(webServerDsp.getIpAddress().c_str());
+        canvas.setCursor(26, 31); canvas.printf("IP: %s", webServerDsp.getIpAddress().c_str());
 
         // Klien count
         canvas.setTextColor(COLOR_METER_GRN);

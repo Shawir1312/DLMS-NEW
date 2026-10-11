@@ -171,8 +171,8 @@ void DspEngine::init(uint32_t sample_rate) {
     _config.setup.mute_on_boot = false;
     _config.setup.wifi_mode = DSP_WIFI_AP;
     _config.setup.web_access = WEB_ACCESS_FULL;
-    strncpy(_config.setup.wifi_ssid, "", sizeof(_config.setup.wifi_ssid));
-    strncpy(_config.setup.wifi_pass, "", sizeof(_config.setup.wifi_pass));
+    strncpy(_config.setup.wifi_ssid, "DLMS-DSP-SHAWIR", sizeof(_config.setup.wifi_ssid));
+    strncpy(_config.setup.wifi_pass, "0987654321", sizeof(_config.setup.wifi_pass));
     strncpy(_config.setup.web_password, "admin123", sizeof(_config.setup.web_password));
 
     updateInternalFilters();
@@ -470,7 +470,7 @@ void DspEngine::updateSingleInputPeq(uint8_t in_ch, uint8_t band) {
     if (in_ch >= 2 || band >= 4) return;
     float fs = (float)_sampleRate;
     const PeqBandConfig& p = _config.in[in_ch].peq[band];
-    if (!p.enabled || p.bypass) {
+    if (!p.enabled || p.bypass || (p.type != PEQ_NOTCH && fabsf(p.gain_db) < 0.05f)) {
         _inPeq[in_ch][band].setPassthrough();
     } else {
         switch (p.type) {
@@ -495,7 +495,7 @@ void DspEngine::updateSingleOutputPeq(uint8_t out_ch, uint8_t band) {
     if (out_ch >= 4 || band >= 8) return;
     float fs = (float)_sampleRate;
     const PeqBandConfig& p = _config.out[out_ch].peq[band];
-    if (!p.enabled || p.bypass) {
+    if (!p.enabled || p.bypass || (p.type != PEQ_NOTCH && fabsf(p.gain_db) < 0.05f)) {
         _outPeq[out_ch][band].setPassthrough();
     } else {
         switch (p.type) {

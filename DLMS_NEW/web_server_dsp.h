@@ -16,6 +16,7 @@ public:
 
     String getIpAddress() const;
     String getSsid() const { return _apSsid; }
+    String getPassword() const { return _apPass; }
     uint8_t getClientCount() const;
     void setWifiMode(uint8_t mode);
     bool isWifiEnabled() const;
@@ -26,6 +27,7 @@ private:
     volatile uint8_t _wifiMode;
     bool _isApMode;
     String _apSsid;
+    String _apPass;
     void setupRoutes();
 };
 

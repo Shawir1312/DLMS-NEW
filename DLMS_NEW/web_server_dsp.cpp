@@ -16,7 +16,7 @@ static const byte DNS_PORT = 53;
 static void webServerTask(void* param) {
     while (1) {
         webServerDsp.loop();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(1)); // Ultra low latency untuk respon Web UI responsif & instan
     }
 }
 
@@ -24,7 +24,8 @@ WebServerDsp::WebServerDsp()
     : _isRunning(false),
       _wifiMode(DSP_WIFI_AP),
       _isApMode(true),
-      _apSsid("DLMS-DSP-SHAWIR")
+      _apSsid("DLMS-DSP-SHAWIR"),
+      _apPass("0987654321")
 {
 }
 
@@ -115,8 +116,8 @@ void WebServerDsp::setWifiMode(uint8_t mode) {
         IPAddress netMsk(255, 255, 255, 0);
         WiFi.softAPConfig(apIP, apIP, netMsk);
 
-        // Gunakan nullptr untuk open SoftAP (tanpa enkripsi) agar terbaca langsung di semua HP
-        WiFi.softAP(_apSsid.c_str(), nullptr, 1, 0, 4);
+        // Enkripsi WPA2 SoftAP dengan password bawaan 0987654321
+        WiFi.softAP(_apSsid.c_str(), _apPass.c_str(), 1, 0, 4);
         WiFi.setTxPower(WIFI_POWER_19_5dBm);
 
         dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
@@ -126,7 +127,7 @@ void WebServerDsp::setWifiMode(uint8_t mode) {
         _wifiMode = DSP_WIFI_AP;
         _isApMode = true;
         _isRunning = true;
-        Serial.printf("[WiFi] Mode SoftAP Aktif: SSID=\"%s\", IP=http://192.168.4.1\n", _apSsid.c_str());
+        Serial.printf("[WiFi] Mode SoftAP Aktif: SSID=\"%s\", Pass=\"%s\", IP=http://192.168.4.1\n", _apSsid.c_str(), _apPass.c_str());
     }
 }
 

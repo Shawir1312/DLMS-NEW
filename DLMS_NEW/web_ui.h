@@ -131,7 +131,39 @@ header {
 .control-val { font-family: monospace; font-weight: 700; color: var(--cyan-accent); min-width: 58px; text-align: right; font-size: 12px; flex-shrink: 0; }
 
 /* INPUTS, SLIDERS & BUTTONS */
-input[type=range] { flex: 1; margin: 0; accent-color: var(--cyan-accent); cursor: pointer; min-height: 28px; }
+input[type=range] {
+  flex: 1;
+  margin: 0;
+  accent-color: var(--cyan-accent);
+  cursor: pointer;
+  min-height: 32px;
+  height: 32px;
+  touch-action: pan-y;
+  background: transparent;
+  -webkit-appearance: none;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #0d1829;
+  border: 1px solid #1a2d4b;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cyan-accent);
+  margin-top: -7px;
+  cursor: pointer;
+  box-shadow: 0 0 10px var(--cyan-glow);
+  border: 2px solid #ffffff;
+  transition: transform 0.1s ease;
+}
+input[type=range]:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+  background: #ffffff;
+}
 select, input[type=text], input[type=number], input[type=password] {
   background: #050a14;
   border: 1px solid var(--border-light);
@@ -211,6 +243,7 @@ svg.curve-svg { width: 100%; height: 100%; display: block; }
     <span class="badge" id="cpu-badge">CPU: 0%</span>
     <span class="badge mode" id="mode-badge" onclick="switchModeQuick()">Mode 1: Stereo Pair</span>
     <span class="badge" id="preset-badge">Slot 1</span>
+    <span class="badge" style="color:var(--cyan-accent); border:1px solid #1a365d;" title="WiFi SoftAP Password">Pass: 0987654321</span>
   </div>
   <button class="btn-mute-all" id="btn-master-mute" onclick="toggleMasterMute()">MUTE ALL</button>
 </header>
@@ -394,11 +427,19 @@ svg.curve-svg { width: 100%; height: 100%; display: block; }
       </div>
 
       <div class="box-sub">
-        <div class="box-title">Koneksi WiFi & Remote</div>
+        <div class="box-title">Koneksi WiFi & Remote Control</div>
+        <div style="background:#040914; border:1px solid #1a2c47; border-radius:6px; padding:10px; margin-bottom:10px;">
+          <div style="color:var(--cyan-accent); font-weight:700; margin-bottom:4px; font-size:12px;">&#128246; Kredensial SoftAP Bawaan:</div>
+          <div style="font-size:12px; color:var(--text-main); font-family:monospace; line-height:1.6;">
+            SSID: <b style="color:#fff;">DLMS-DSP-SHAWIR</b><br>
+            Password: <b style="color:var(--cyan-accent); letter-spacing:1px;">0987654321</b><br>
+            IP Akses: <b style="color:var(--green);">http://192.168.4.1</b>
+          </div>
+        </div>
         <div class="control-row">
           <label>Mode WiFi</label>
           <select id="sel-wifi-mode">
-            <option value="1">SoftAP (Access Point: DLMS-DSP-AUDIO)</option>
+            <option value="1">SoftAP (Access Point Mandiri)</option>
             <option value="2">Station (Terhubung ke WiFi Router)</option>
             <option value="0">Off (Radio WiFi Mati)</option>
           </select>
@@ -409,7 +450,7 @@ svg.curve-svg { width: 100%; height: 100%; display: block; }
         </div>
         <div class="control-row">
           <label>Password</label>
-          <input type="password" id="inp-wifi-pass" placeholder="Password WiFi" style="flex:1;">
+          <input type="password" id="inp-wifi-pass" value="0987654321" placeholder="Password WiFi" style="flex:1;">
         </div>
         <div class="control-row" style="margin-top:8px;">
           <span></span>
@@ -428,6 +469,7 @@ let currentTarget = 2; // Default OUT 1
 
 function showToast(msg) {
   const t = document.getElementById('toast');
+  if (!t) return;
   t.innerText = msg;
   t.style.display = 'block';
   setTimeout(() => { t.style.display = 'none'; }, 2200);
@@ -436,20 +478,73 @@ function showToast(msg) {
 let lastConfigVer = -1;
 let isUserEditing = false;
 let configSyncTimer = null;
+let meterPollTimer = null;
+
+// Throttling manager for smooth 60 FPS slider dragging without network congestion
+const throttlers = {};
+function postThrottled(key, endpoint, payloadFn, delayMs = 60) {
+  if (!throttlers[key]) {
+    throttlers[key] = {
+      timer: null,
+      inFlight: false,
+      pending: false,
+      payloadFn: payloadFn
+    };
+  }
+  const th = throttlers[key];
+  th.payloadFn = payloadFn;
+
+  function sendReq() {
+    if (th.inFlight) {
+      th.pending = true;
+      return;
+    }
+    th.inFlight = true;
+    th.pending = false;
+    const data = th.payloadFn();
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .catch(e => console.warn(e))
+    .finally(() => {
+      th.inFlight = false;
+      if (th.pending) {
+        th.pending = false;
+        th.timer = setTimeout(sendReq, delayMs);
+      }
+    });
+  }
+
+  if (!th.inFlight && !th.timer) {
+    sendReq();
+  } else {
+    th.pending = true;
+    if (!th.timer) {
+      th.timer = setTimeout(() => {
+        th.timer = null;
+        sendReq();
+      }, delayMs);
+    }
+  }
+}
 
 function scheduleConfigSync() {
   if (configSyncTimer) return;
   configSyncTimer = setTimeout(() => {
     configSyncTimer = null;
     fetchConfig();
-  }, 120);
+  }, 150);
 }
 
 function initLiveTelemetry() {
   fetchConfig();
-  setInterval(pollMeters, 100); // 10Hz live telemetry & VU meter
+  pollMetersLoop();
 
-  // Deteksi interaksi pengguna agar slider yang sedang digeser tidak terganggu
+  // Deteksi interaksi pengguna agar slider yang sedang digeser tidak terinterupsi
   document.addEventListener('focusin', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
       isUserEditing = true;
@@ -468,24 +563,39 @@ function initLiveTelemetry() {
     setTimeout(() => {
       isUserEditing = false;
       scheduleConfigSync();
-    }, 150);
+    }, 200);
   });
 }
 
-function pollMeters() {
+// Chained polling prevents stacked requests and yields WiFi bandwidth while user is dragging
+function pollMetersLoop() {
+  const pollInterval = isUserEditing ? 250 : 120;
   fetch('/api/meter')
     .then(r => r.json())
     .then(m => updateMeters(m))
     .catch(() => {
-      document.getElementById('ws-badge').innerText = '○ OFFLINE';
-      document.getElementById('ws-badge').className = 'badge';
+      const b = document.getElementById('ws-badge');
+      if (b) {
+        b.innerText = '○ OFFLINE';
+        b.className = 'badge';
+      }
+    })
+    .finally(() => {
+      if (meterPollTimer) clearTimeout(meterPollTimer);
+      meterPollTimer = setTimeout(pollMetersLoop, pollInterval);
     });
 }
 
 function updateMeters(m) {
-  document.getElementById('ws-badge').innerText = '● LIVE';
-  document.getElementById('ws-badge').className = 'badge live';
-  if (m.cpu !== undefined) document.getElementById('cpu-badge').innerText = `CPU: ${Math.round(m.cpu)}%`;
+  const wsBadge = document.getElementById('ws-badge');
+  if (wsBadge) {
+    wsBadge.innerText = '● LIVE';
+    wsBadge.className = 'badge live';
+  }
+  if (m.cpu !== undefined) {
+    const cpuBadge = document.getElementById('cpu-badge');
+    if (cpuBadge) cpuBadge.innerText = `CPU: ${Math.round(m.cpu)}%`;
+  }
 
   // Sinkronisasi otomatis real-time jika ada perubahan parameter di LCD / Hardware
   if (m.ver !== undefined) {
@@ -503,9 +613,12 @@ function updateMeters(m) {
     for (let i = 0; i < 2; i++) {
       const db = m.in_peak[i];
       const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-      document.getElementById(`vu-in${i}`).style.height = pct + '%';
-      document.getElementById(`val-in${i}`).innerText = db > -58 ? db.toFixed(1) : '-inf';
-      document.getElementById(`clip-in${i}`).style.display = db >= -0.1 ? 'inline-block' : 'none';
+      const vu = document.getElementById(`vu-in${i}`);
+      if (vu) vu.style.height = pct + '%';
+      const val = document.getElementById(`val-in${i}`);
+      if (val) val.innerText = db > -58 ? db.toFixed(1) : '-inf';
+      const clip = document.getElementById(`clip-in${i}`);
+      if (clip) clip.style.display = db >= -0.1 ? 'inline-block' : 'none';
     }
   }
 
@@ -513,11 +626,15 @@ function updateMeters(m) {
     for (let i = 0; i < 4; i++) {
       const db = m.out_peak[i];
       const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-      document.getElementById(`vu-out${i}`).style.height = pct + '%';
-      document.getElementById(`val-out${i}`).innerText = db > -58 ? db.toFixed(1) : '-inf';
-      document.getElementById(`clip-out${i}`).style.display = db >= -0.1 ? 'inline-block' : 'none';
+      const vu = document.getElementById(`vu-out${i}`);
+      if (vu) vu.style.height = pct + '%';
+      const val = document.getElementById(`val-out${i}`);
+      if (val) val.innerText = db > -58 ? db.toFixed(1) : '-inf';
+      const clip = document.getElementById(`clip-out${i}`);
+      if (clip) clip.style.display = db >= -0.1 ? 'inline-block' : 'none';
       const gr = m.limiter_gr ? m.limiter_gr[i] : 0;
-      document.getElementById(`lim-out${i}`).style.display = gr < -0.3 ? 'inline-block' : 'none';
+      const lim = document.getElementById(`lim-out${i}`);
+      if (lim) lim.style.display = gr < -0.3 ? 'inline-block' : 'none';
     }
   }
 }
@@ -539,7 +656,7 @@ function sendPost(endpoint, payload, callback) {
     body: JSON.stringify(payload)
   }).then(r => r.json()).then(res => {
     if (callback) callback(res);
-  });
+  }).catch(e => console.warn(e));
 }
 
 function switchTab(tabId) {
@@ -573,7 +690,8 @@ function toggleMasterMute() {
   if (!currentConfig) return;
   const newMute = !currentConfig.master_mute;
   currentConfig.master_mute = newMute;
-  document.getElementById('btn-master-mute').className = 'btn-mute-all' + (newMute ? ' active' : '');
+  const btn = document.getElementById('btn-master-mute');
+  if (btn) btn.className = 'btn-mute-all' + (newMute ? ' active' : '');
   sendPost('/api/master_mute', { mute: newMute }, () => {
     showToast(newMute ? 'Master Audio Dimatikan (Muted)' : 'Master Audio Aktif');
   });
@@ -582,24 +700,35 @@ function toggleMasterMute() {
 function renderAll() {
   if (!currentConfig) return;
   const isMode1 = currentConfig.setup.out_mode === 0;
-  document.getElementById('mode-badge').innerText = isMode1 ? 'Mode 1: Stereo Pair' : 'Mode 2: 4-Way Indiv';
-  document.getElementById('chan-mode-info').innerText = isMode1 ? 'Mode 1: Out 1-2 & Out 3-4 Terhubung' : 'Mode 2: Masing-masing Out Mandiri';
-  document.getElementById('preset-badge').innerText = `Slot ${currentConfig.current_slot}: ${currentConfig.name}`;
-  document.getElementById('btn-master-mute').className = 'btn-mute-all' + (currentConfig.master_mute ? ' active' : '');
+  const modeBadge = document.getElementById('mode-badge');
+  if (modeBadge) modeBadge.innerText = isMode1 ? 'Mode 1: Stereo Pair' : 'Mode 2: 4-Way Indiv';
+  const chanInfo = document.getElementById('chan-mode-info');
+  if (chanInfo) chanInfo.innerText = isMode1 ? 'Mode 1: Out 1-2 & Out 3-4 Terhubung' : 'Mode 2: Masing-masing Out Mandiri';
+  const presBadge = document.getElementById('preset-badge');
+  if (presBadge) presBadge.innerText = `Slot ${currentConfig.current_slot}: ${currentConfig.name}`;
+  const btnMute = document.getElementById('btn-master-mute');
+  if (btnMute) btnMute.className = 'btn-mute-all' + (currentConfig.master_mute ? ' active' : '');
 
   // Setup tab sync
-  document.getElementById('sel-out-mode').value = currentConfig.setup.out_mode;
-  document.getElementById('sel-wifi-mode').value = currentConfig.setup.wifi_mode;
-  document.getElementById('inp-wifi-ssid').value = currentConfig.setup.wifi_ssid || '';
+  const selOutMode = document.getElementById('sel-out-mode');
+  if (selOutMode) selOutMode.value = currentConfig.setup.out_mode;
+  const selWifi = document.getElementById('sel-wifi-mode');
+  if (selWifi) selWifi.value = currentConfig.setup.wifi_mode;
+  const inpSsid = document.getElementById('inp-wifi-ssid');
+  if (inpSsid) inpSsid.value = currentConfig.setup.wifi_ssid || '';
 
   // Render Inputs
   for (let i = 0; i < 2; i++) {
     const ch = currentConfig.in[i];
-    document.getElementById(`rng-in-gain${i}`).value = ch.gain_db;
-    document.getElementById(`val-in-gain${i}`).innerText = ch.gain_db.toFixed(1) + ' dB';
+    const rng = document.getElementById(`rng-in-gain${i}`);
+    if (rng) rng.value = ch.gain_db;
+    const val = document.getElementById(`val-in-gain${i}`);
+    if (val) val.innerText = ch.gain_db.toFixed(1) + ' dB';
     const btnM = document.getElementById(`btn-in-mute${i}`);
-    btnM.className = 'btn-toggle' + (ch.mute ? ' muted' : '');
-    btnM.innerText = ch.mute ? 'MUTED' : 'MUTE';
+    if (btnM) {
+      btnM.className = 'btn-toggle' + (ch.mute ? ' muted' : '');
+      btnM.innerText = ch.mute ? 'MUTED' : 'MUTE';
+    }
   }
 
   // Render Outputs
@@ -613,8 +742,9 @@ function renderAll() {
 function updateInGain(ch, val) {
   val = parseFloat(val);
   currentConfig.in[ch].gain_db = val;
-  document.getElementById(`val-in-gain${ch}`).innerText = val.toFixed(1) + ' dB';
-  sendPost('/api/channel', { type: 'in', channel: ch, gain_db: val });
+  const el = document.getElementById(`val-in-gain${ch}`);
+  if (el) el.innerText = val.toFixed(1) + ' dB';
+  postThrottled(`in_gain_${ch}`, '/api/channel', () => ({ type: 'in', channel: ch, gain_db: val }), 50);
 }
 
 function toggleChannelMute(type, ch) {
@@ -678,7 +808,7 @@ function updateOutGain(ch, val) {
   currentConfig.out[ch].gain_db = val;
   const el = document.getElementById(`val-out-gain${ch}`);
   if (el) el.innerText = val.toFixed(1) + ' dB';
-  sendPost('/api/channel', { type: 'out', channel: ch, gain_db: val });
+  postThrottled(`out_gain_${ch}`, '/api/channel', () => ({ type: 'out', channel: ch, gain_db: val }), 50);
 }
 
 function updateRouting(ch, src) {
@@ -708,8 +838,8 @@ function renderXover() {
           </div>
           <div class="control-row">
             <label>Frekuensi</label>
-            <input type="range" min="20" max="20000" value="${ch.hpf.freq}" oninput="updateXoverVal(${idx}, 'hpf', 'freq', this.value)">
-            <input type="number" min="20" max="20000" value="${Math.round(ch.hpf.freq)}" style="width:70px;" onchange="updateXoverVal(${idx}, 'hpf', 'freq', this.value)">
+            <input type="range" id="xover-rng-hpf-${idx}" min="20" max="20000" value="${ch.hpf.freq}" oninput="updateXoverVal(${idx}, 'hpf', 'freq', this.value)">
+            <input type="number" id="xover-num-hpf-${idx}" min="20" max="20000" value="${Math.round(ch.hpf.freq)}" style="width:70px;" onchange="updateXoverVal(${idx}, 'hpf', 'freq', this.value)">
           </div>
           <div class="control-row">
             <label>Tipe Filter</label>
@@ -733,8 +863,8 @@ function renderXover() {
           </div>
           <div class="control-row">
             <label>Frekuensi</label>
-            <input type="range" min="20" max="20000" value="${ch.lpf.freq}" oninput="updateXoverVal(${idx}, 'lpf', 'freq', this.value)">
-            <input type="number" min="20" max="20000" value="${Math.round(ch.lpf.freq)}" style="width:70px;" onchange="updateXoverVal(${idx}, 'lpf', 'freq', this.value)">
+            <input type="range" id="xover-rng-lpf-${idx}" min="20" max="20000" value="${ch.lpf.freq}" oninput="updateXoverVal(${idx}, 'lpf', 'freq', this.value)">
+            <input type="number" id="xover-num-lpf-${idx}" min="20" max="20000" value="${Math.round(ch.lpf.freq)}" style="width:70px;" onchange="updateXoverVal(${idx}, 'lpf', 'freq', this.value)">
           </div>
           <div class="control-row">
             <label>Tipe Filter</label>
@@ -765,8 +895,19 @@ function toggleXoverEnable(ch, type) {
 }
 
 function updateXoverVal(ch, type, prop, val) {
-  currentConfig.out[ch][type][prop] = (prop === 'type' || prop === 'slope') ? parseInt(val) : parseFloat(val);
-  sendPost('/api/xover', { channel: ch, type: type, config: currentConfig.out[ch][type] });
+  val = (prop === 'type' || prop === 'slope') ? parseInt(val) : parseFloat(val);
+  currentConfig.out[ch][type][prop] = val;
+  if (prop === 'freq') {
+    const inp = document.getElementById(`xover-num-${type}-${ch}`);
+    const rng = document.getElementById(`xover-rng-${type}-${ch}`);
+    if (inp && inp.value != Math.round(val)) inp.value = Math.round(val);
+    if (rng && rng.value != val) rng.value = val;
+  }
+  postThrottled(`xover_${ch}_${type}`, '/api/xover', () => ({
+    channel: ch,
+    type: type,
+    config: currentConfig.out[ch][type]
+  }), 60);
 }
 
 function applyQuickXover(n) {
@@ -847,18 +988,18 @@ function renderPeqControls() {
         </div>
         <div class="control-row">
           <label>Frekuensi</label>
-          <input type="range" min="20" max="20000" value="${b.freq}" oninput="updatePeqVal(${idx}, 'freq', this.value)">
-          <input type="number" min="20" max="20000" value="${Math.round(b.freq)}" style="width:70px;" onchange="updatePeqVal(${idx}, 'freq', this.value)">
+          <input type="range" id="peq-rng-freq-${idx}" min="20" max="20000" value="${b.freq}" oninput="updatePeqVal(${idx}, 'freq', this.value)">
+          <input type="number" id="peq-num-freq-${idx}" min="20" max="20000" value="${Math.round(b.freq)}" style="width:70px;" onchange="updatePeqVal(${idx}, 'freq', this.value)">
         </div>
         <div class="control-row">
           <label>Gain (dB)</label>
           <input type="range" min="-15" max="15" step="0.5" value="${b.gain_db}" oninput="updatePeqVal(${idx}, 'gain_db', this.value)">
-          <span class="control-val">${b.gain_db > 0 ? '+' : ''}${b.gain_db.toFixed(1)} dB</span>
+          <span class="control-val" id="peq-lbl-gain-${idx}">${b.gain_db > 0 ? '+' : ''}${b.gain_db.toFixed(1)} dB</span>
         </div>
         <div class="control-row">
           <label>Q-Factor</label>
           <input type="range" min="0.1" max="15" step="0.1" value="${b.q}" oninput="updatePeqVal(${idx}, 'q', this.value)">
-          <span class="control-val">${b.q.toFixed(1)}</span>
+          <span class="control-val" id="peq-lbl-q-${idx}">${b.q.toFixed(1)}</span>
         </div>
       </div>
     `;
@@ -878,9 +1019,29 @@ function togglePeqBand(bIdx, prop) {
 
 function updatePeqVal(bIdx, prop, val) {
   const bands = (currentTarget < 2) ? currentConfig.in[currentTarget].peq : currentConfig.out[currentTarget - 2].peq;
-  bands[bIdx][prop] = (prop === 'type') ? parseInt(val) : parseFloat(val);
+  val = (prop === 'type') ? parseInt(val) : parseFloat(val);
+  bands[bIdx][prop] = val;
+
+  // Instant 60 FPS visual feedback on UI controls
+  if (prop === 'gain_db') {
+    const lbl = document.getElementById(`peq-lbl-gain-${bIdx}`);
+    if (lbl) lbl.innerText = (val > 0 ? '+' : '') + val.toFixed(1) + ' dB';
+  } else if (prop === 'freq') {
+    const inp = document.getElementById(`peq-num-freq-${bIdx}`);
+    const rng = document.getElementById(`peq-rng-freq-${bIdx}`);
+    if (inp && inp.value != Math.round(val)) inp.value = Math.round(val);
+    if (rng && rng.value != val) rng.value = val;
+  } else if (prop === 'q') {
+    const lbl = document.getElementById(`peq-lbl-q-${bIdx}`);
+    if (lbl) lbl.innerText = val.toFixed(1);
+  }
+
   drawCurve();
-  sendPost('/api/peq', { target: currentTarget, band: bIdx, config: bands[bIdx] });
+  postThrottled(`peq_${currentTarget}_${bIdx}`, '/api/peq', () => ({
+    target: currentTarget,
+    band: bIdx,
+    config: bands[bIdx]
+  }), 60);
 }
 
 /* LIMITER & DELAY */
@@ -891,8 +1052,7 @@ function renderDynamics() {
 
   let html = '';
   currentConfig.out.forEach((ch, idx) => {
-    // Perhitungan jarak delay fisik
-    const speedOfSound = 331.3 + (0.606 * ch.delay.temp_c); // m/s
+    const speedOfSound = 331.3 + (0.606 * ch.delay.temp_c);
     const meters = (ch.delay.delay_ms * 0.001) * speedOfSound;
     const feet = meters * 3.28084;
 
@@ -909,17 +1069,17 @@ function renderDynamics() {
           <div class="control-row">
             <label>Threshold</label>
             <input type="range" min="-40" max="0" step="0.5" value="${ch.limiter.threshold_db}" oninput="updateLimiterVal(${idx}, 'threshold_db', this.value)">
-            <span class="control-val">${ch.limiter.threshold_db.toFixed(1)} dBFS</span>
+            <span class="control-val" id="lim-lbl-th-${idx}">${ch.limiter.threshold_db.toFixed(1)} dBFS</span>
           </div>
           <div class="control-row">
             <label>Attack (ms)</label>
             <input type="range" min="0.1" max="50" step="0.5" value="${ch.limiter.attack_ms}" oninput="updateLimiterVal(${idx}, 'attack_ms', this.value)">
-            <span class="control-val">${ch.limiter.attack_ms.toFixed(1)} ms</span>
+            <span class="control-val" id="lim-lbl-att-${idx}">${ch.limiter.attack_ms.toFixed(1)} ms</span>
           </div>
           <div class="control-row">
             <label>Release (ms)</label>
             <input type="range" min="10" max="1000" step="10" value="${ch.limiter.release_ms}" oninput="updateLimiterVal(${idx}, 'release_ms', this.value)">
-            <span class="control-val">${Math.round(ch.limiter.release_ms)} ms</span>
+            <span class="control-val" id="lim-lbl-rel-${idx}">${Math.round(ch.limiter.release_ms)} ms</span>
           </div>
         </div>
 
@@ -928,8 +1088,8 @@ function renderDynamics() {
           <div style="font-weight:700; color:var(--cyan-accent); margin-bottom:6px;">Time Alignment Delay</div>
           <div class="control-row">
             <label>Delay (ms)</label>
-            <input type="range" min="0" max="100" step="0.1" value="${ch.delay.delay_ms}" oninput="updateDelayVal(${idx}, 'delay_ms', this.value)">
-            <input type="number" min="0" max="100" step="0.1" value="${ch.delay.delay_ms.toFixed(1)}" style="width:70px;" onchange="updateDelayVal(${idx}, 'delay_ms', this.value)">
+            <input type="range" id="del-rng-ms-${idx}" min="0" max="100" step="0.1" value="${ch.delay.delay_ms}" oninput="updateDelayVal(${idx}, 'delay_ms', this.value)">
+            <input type="number" id="del-num-ms-${idx}" min="0" max="100" step="0.1" value="${ch.delay.delay_ms.toFixed(1)}" style="width:70px;" onchange="updateDelayVal(${idx}, 'delay_ms', this.value)">
           </div>
           <div class="control-row">
             <label>Satuan</label>
@@ -939,8 +1099,8 @@ function renderDynamics() {
           </div>
           <div class="control-row">
             <label>Suhu Suara (°C)</label>
-            <input type="number" min="0" max="45" value="${ch.delay.temp_c}" style="width:70px;" onchange="updateDelayVal(${idx}, 'temp_c', this.value)">
-            <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">${meters.toFixed(2)} m / ${feet.toFixed(2)} ft</span>
+            <input type="number" id="del-num-temp-${idx}" min="0" max="45" value="${ch.delay.temp_c}" style="width:70px;" onchange="updateDelayVal(${idx}, 'temp_c', this.value)">
+            <span style="font-size:11px; color:var(--text-muted); font-family:monospace;" id="del-lbl-dist-${idx}">${meters.toFixed(2)} m / ${feet.toFixed(2)} ft</span>
           </div>
         </div>
       </div>
@@ -958,15 +1118,46 @@ function toggleLimiterEnable(ch) {
 }
 
 function updateLimiterVal(ch, prop, val) {
-  currentConfig.out[ch].limiter[prop] = parseFloat(val);
-  const target = currentConfig.out[ch].limiter;
-  sendPost('/api/limiter', { channel: ch, enabled: target.enabled, threshold_db: target.threshold_db, attack_ms: target.attack_ms, release_ms: target.release_ms });
+  val = parseFloat(val);
+  currentConfig.out[ch].limiter[prop] = val;
+  if (prop === 'threshold_db') {
+    const el = document.getElementById(`lim-lbl-th-${ch}`);
+    if (el) el.innerText = val.toFixed(1) + ' dBFS';
+  } else if (prop === 'attack_ms') {
+    const el = document.getElementById(`lim-lbl-att-${ch}`);
+    if (el) el.innerText = val.toFixed(1) + ' ms';
+  } else if (prop === 'release_ms') {
+    const el = document.getElementById(`lim-lbl-rel-${ch}`);
+    if (el) el.innerText = Math.round(val) + ' ms';
+  }
+  postThrottled(`limiter_${ch}`, '/api/limiter', () => {
+    const target = currentConfig.out[ch].limiter;
+    return { channel: ch, enabled: target.enabled, threshold_db: target.threshold_db, attack_ms: target.attack_ms, release_ms: target.release_ms };
+  }, 60);
 }
 
 function updateDelayVal(ch, prop, val) {
-  currentConfig.out[ch].delay[prop] = (prop === 'unit') ? parseInt(val) : parseFloat(val);
+  val = (prop === 'unit') ? parseInt(val) : parseFloat(val);
+  currentConfig.out[ch].delay[prop] = val;
   const target = currentConfig.out[ch].delay;
-  sendPost('/api/delay', { channel: ch, delay_ms: target.delay_ms, unit: target.unit, temp_c: target.temp_c });
+  if (prop === 'delay_ms') {
+    const inp = document.getElementById(`del-num-ms-${ch}`);
+    const rng = document.getElementById(`del-rng-ms-${ch}`);
+    if (inp && inp.value != val) inp.value = val.toFixed(1);
+    if (rng && rng.value != val) rng.value = val;
+  }
+  const speedOfSound = 331.3 + (0.606 * target.temp_c);
+  const meters = (target.delay_ms * 0.001) * speedOfSound;
+  const feet = meters * 3.28084;
+  const distEl = document.getElementById(`del-lbl-dist-${ch}`);
+  if (distEl) distEl.innerText = `${meters.toFixed(2)} m / ${feet.toFixed(2)} ft`;
+
+  postThrottled(`delay_${ch}`, '/api/delay', () => ({
+    channel: ch,
+    delay_ms: target.delay_ms,
+    unit: target.unit,
+    temp_c: target.temp_c
+  }), 60);
 }
 
 /* PRESETS */

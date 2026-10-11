@@ -118,8 +118,8 @@ const DspPreset& StorageManager::getFactoryPreset() {
         s_factoryPreset.setup.wifi_mode = DSP_WIFI_AP;
         s_factoryPreset.setup.web_access = WEB_ACCESS_FULL;
         s_factoryPreset.setup.out_mode = 0; // Mode 1 Default: Stereo Pair (Out 1-2 & Out 3-4 Linked)
-        strncpy(s_factoryPreset.setup.wifi_ssid, "", sizeof(s_factoryPreset.setup.wifi_ssid));
-        strncpy(s_factoryPreset.setup.wifi_pass, "", sizeof(s_factoryPreset.setup.wifi_pass));
+        strncpy(s_factoryPreset.setup.wifi_ssid, "DLMS-DSP-SHAWIR", sizeof(s_factoryPreset.setup.wifi_ssid));
+        strncpy(s_factoryPreset.setup.wifi_pass, "0987654321", sizeof(s_factoryPreset.setup.wifi_pass));
         strncpy(s_factoryPreset.setup.web_password, "admin123", sizeof(s_factoryPreset.setup.web_password));
 
         s_factoryPreset.crc32 = calculateCrc32(s_factoryPreset);
