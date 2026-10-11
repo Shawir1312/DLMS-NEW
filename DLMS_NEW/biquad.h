@@ -35,6 +35,8 @@ public:
 
     inline void setPassthrough() {
         setCoefficients(1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        s1 = 0.0f;
+        s2 = 0.0f;
     }
 
     inline void setCoefficients(float nb0, float nb1, float nb2, float na1, float na2) {
@@ -53,6 +55,13 @@ public:
         float out = in * c.b0 + s1;
         s1 = in * c.b1 - out * c.a1 + s2;
         s2 = in * c.b2 - out * c.a2;
+
+        // Anti-explosion guard: cegah suara serak liar jika terjadi transien lonjakan
+        if (__builtin_expect(fabsf(s1) > 4.0f || fabsf(s2) > 4.0f, 0)) {
+            s1 = 0.0f;
+            s2 = 0.0f;
+            out = in;
+        }
         return out;
     }
 
@@ -264,7 +273,7 @@ class CrossoverCascade {
 public:
     static const int MAX_BIQUADS = 4;
     Biquad biquads[MAX_BIQUADS];
-    int activeCount;
+    volatile int activeCount;
 
     CrossoverCascade() : activeCount(0) {
         reset();
@@ -462,14 +471,15 @@ public:
             }
         }
 
-        // Jika jumlah biquad bertambah, inisialisasi hanya biquad indeks baru
-        for (int i = oldCount; i < targetCount; i++) {
-            biquads[i].reset();
+        // Hanya reset biquad yang baru jika jumlah filter bertambah
+        if (oldCount != targetCount) {
+            for (int i = oldCount; i < targetCount; i++) {
+                biquads[i].reset();
+            }
+            for (int i = targetCount; i < MAX_BIQUADS; i++) {
+                biquads[i].setPassthrough();
+            }
+            activeCount = targetCount;
         }
-        // Set biquad yang tidak aktif menjadi passthrough
-        for (int i = targetCount; i < MAX_BIQUADS; i++) {
-            biquads[i].setPassthrough();
-        }
-        activeCount = targetCount;
     }
 };

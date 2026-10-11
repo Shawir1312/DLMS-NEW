@@ -40,14 +40,19 @@ static void audioTask(void* param) {
     memset(out2Pcm, 0, sizeof(out2Pcm));
 
     while (1) {
+        if (g_dspStorageBusy) {
+            // Flash LittleFS sedang ditulis/dibaca. Tunda sejenak agar I2S tidak desync/underflow
+            vTaskDelay(pdMS_TO_TICKS(2));
+            continue;
+        }
+
         // 1. Baca 32 sampel stereo dari ADC (PCM1808 via I2S0 Master)
         size_t framesRead = i2sDuplex.readAdc(inPcm, AUDIO_BLOCK_FRAMES);
 
         if (framesRead == 0) {
-            // Fallback jika belum ada sinyal I2S agar tidak spinlock membebani CPU
-            memset(inPcm, 0, sizeof(inPcm));
-            framesRead = AUDIO_BLOCK_FRAMES;
+            // Jika ADC belum siap / timeout, tunda sejenak dan lewati tulis DAC agar clock tetap sinkron
             vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
         }
 
         // 2. Jalankan Rantai DSP Lengkap (Float 32-bit):

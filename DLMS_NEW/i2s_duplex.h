@@ -29,6 +29,9 @@ public:
     // Kontrol Soft-Mute Hardware XSMT (High = Unmute, Low = Mute)
     void setHardwareMute(bool mute_dac1, bool mute_dac2);
 
+    // Flush dan sinkronisasi ulang antrean DMA I2S (menghilangkan audio serak / slip)
+    void flushDmaBuffers();
+
     bool isRunning() const { return _running; }
     uint32_t getSampleRate() const { return _sampleRate; }
 

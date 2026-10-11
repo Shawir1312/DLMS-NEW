@@ -1,6 +1,7 @@
 #include "storage_manager.h"
 #include <LittleFS.h>
 #include "dsp_engine.h"
+#include "i2s_duplex.h"
 
 volatile bool g_dspStorageBusy = false;
 StorageManager storageManager;
@@ -293,16 +294,30 @@ bool StorageManager::loadPreset(uint8_t slot, DspPreset& preset) {
 
     if (!LittleFS.exists(path)) return false;
 
+    // Lindungi pemrosesan audio saat membaca flash LittleFS
+    g_dspStorageBusy = true;
+    i2sDuplex.setHardwareMute(true, true);
+    vTaskDelay(pdMS_TO_TICKS(5));
+
     File f = LittleFS.open(path, "r");
-    if (!f) return false;
+    if (!f) {
+        i2sDuplex.flushDmaBuffers();
+        g_dspStorageBusy = false;
+        return false;
+    }
 
     size_t len = f.read((uint8_t*)&preset, sizeof(DspPreset));
     f.close();
 
-    if (len != sizeof(DspPreset)) return false;
-    if (preset.magic != 0x444C4D53) return false;
+    if (len != sizeof(DspPreset) || preset.magic != 0x444C4D53) {
+        i2sDuplex.flushDmaBuffers();
+        g_dspStorageBusy = false;
+        return false;
+    }
 
     sanitizePreset(preset);
+    i2sDuplex.flushDmaBuffers();
+    g_dspStorageBusy = false;
     return true;
 }
 
@@ -324,14 +339,24 @@ bool StorageManager::savePreset(uint8_t slot, const DspPreset& preset) {
     s_saveBuffer.version = 1;
     s_saveBuffer.crc32 = calculateCrc32(s_saveBuffer);
 
+    // KUNCI UTAMA: Lindungi audio selama penulisan Flash SPI (Cache CPU dinonaktifkan)
+    g_dspStorageBusy = true;
+    i2sDuplex.setHardwareMute(true, true);
+    vTaskDelay(pdMS_TO_TICKS(5));
+
     File f = LittleFS.open(path, "w");
-    if (!f) return false;
+    if (!f) {
+        i2sDuplex.flushDmaBuffers();
+        g_dspStorageBusy = false;
+        return false;
+    }
 
     size_t written = f.write((const uint8_t*)&s_saveBuffer, sizeof(DspPreset));
     f.flush();
     f.close();
 
-    if (written == sizeof(DspPreset)) {
+    bool success = (written == sizeof(DspPreset));
+    if (success) {
         if (slot < TOTAL_SLOTS) {
             strncpy(_slotNames[slot], preset.name, sizeof(_slotNames[slot]) - 1);
             _slotNames[slot][sizeof(_slotNames[slot]) - 1] = '\0';
@@ -344,10 +369,12 @@ bool StorageManager::savePreset(uint8_t slot, const DspPreset& preset) {
                 fSlot.close();
             }
         }
-        return true;
     }
 
-    return false;
+    // Flush antrean I2S DMA yang sempat terhambat selama penulisan flash
+    i2sDuplex.flushDmaBuffers();
+    g_dspStorageBusy = false;
+    return success;
 }
 
 bool StorageManager::renamePreset(uint8_t slot, const char* new_name) {

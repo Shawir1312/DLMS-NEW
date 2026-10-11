@@ -55,7 +55,7 @@ private:
     bool _isDirty;
     uint32_t _lastChangeTime;
     char _slotNames[TOTAL_SLOTS][16];
-    static const uint32_t AUTO_SAVE_DELAY_MS = 2000; // 2 detik debounce
+    static const uint32_t AUTO_SAVE_DELAY_MS = 30000; // 30 detik debounce saat benar-benar idle agar tidak mengganggu live tuning
 };
 
 extern volatile bool g_dspStorageBusy;

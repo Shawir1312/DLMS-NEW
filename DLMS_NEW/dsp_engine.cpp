@@ -470,7 +470,7 @@ void DspEngine::updateSingleInputPeq(uint8_t in_ch, uint8_t band) {
     if (in_ch >= 2 || band >= 4) return;
     float fs = (float)_sampleRate;
     const PeqBandConfig& p = _config.in[in_ch].peq[band];
-    if (!p.enabled || p.bypass || (p.type != PEQ_NOTCH && fabsf(p.gain_db) < 0.05f)) {
+    if (!p.enabled || p.bypass) {
         _inPeq[in_ch][band].setPassthrough();
     } else {
         switch (p.type) {
@@ -495,7 +495,7 @@ void DspEngine::updateSingleOutputPeq(uint8_t out_ch, uint8_t band) {
     if (out_ch >= 4 || band >= 8) return;
     float fs = (float)_sampleRate;
     const PeqBandConfig& p = _config.out[out_ch].peq[band];
-    if (!p.enabled || p.bypass || (p.type != PEQ_NOTCH && fabsf(p.gain_db) < 0.05f)) {
+    if (!p.enabled || p.bypass) {
         _outPeq[out_ch][band].setPassthrough();
     } else {
         switch (p.type) {
@@ -703,28 +703,27 @@ void DspEngine::processBlock(const int32_t* in_pcm, int32_t* out1_pcm, int32_t* 
             }
             s *= pgain;
 
-            // Delay Line — fast-path jika delay == 0
-            if (_delayBuffer[ch] && _delayTargetSamples[ch] > 0.5f) {
+            // Delay Line — continuous ring recording untuk transisi mulus bebas static noise
+            if (_delayBuffer[ch]) {
                 uint32_t widx = _delayWriteIdx[ch];
                 _delayBuffer[ch][widx] = s;
+                _delayWriteIdx[ch] = (widx + 1) % _delayBufferSize;
 
                 float d_samp = _delayTargetSamples[ch];
-                if (isnan(d_samp) || isinf(d_samp) || d_samp < 0.0f) d_samp = 0.0f;
-                if (d_samp > (float)(_delayBufferSize - 4)) d_samp = (float)(_delayBufferSize - 4);
+                if (d_samp > 0.5f) {
+                    if (d_samp > (float)(_delayBufferSize - 4)) d_samp = (float)(_delayBufferSize - 4);
+                    float rpos = (float)widx - d_samp;
+                    while (rpos < 0.0f) rpos += (float)_delayBufferSize;
+                    while (rpos >= (float)_delayBufferSize) rpos -= (float)_delayBufferSize;
 
-                float rpos = (float)widx - d_samp;
-                while (rpos < 0.0f) rpos += (float)_delayBufferSize;
-                while (rpos >= (float)_delayBufferSize) rpos -= (float)_delayBufferSize;
-                if (isnan(rpos) || isinf(rpos)) rpos = 0.0f;
+                    uint32_t r_idx0 = ((uint32_t)rpos) % _delayBufferSize;
+                    uint32_t r_idx1 = (r_idx0 + 1) % _delayBufferSize;
+                    float frac = rpos - (float)r_idx0;
+                    if (frac < 0.0f) frac = 0.0f;
+                    if (frac > 1.0f) frac = 1.0f;
 
-                uint32_t r_idx0 = ((uint32_t)rpos) % _delayBufferSize;
-                uint32_t r_idx1 = (r_idx0 + 1) % _delayBufferSize;
-                float frac = rpos - (float)r_idx0;
-                if (frac < 0.0f) frac = 0.0f;
-                if (frac > 1.0f) frac = 1.0f;
-
-                s = _delayBuffer[ch][r_idx0] * (1.0f - frac) + _delayBuffer[ch][r_idx1] * frac;
-                _delayWriteIdx[ch] = (widx + 1) % _delayBufferSize;
+                    s = _delayBuffer[ch][r_idx0] * (1.0f - frac) + _delayBuffer[ch][r_idx1] * frac;
+                }
             }
 
             // Output Gain dengan Ramp Smoothing — skip jika sudah converged

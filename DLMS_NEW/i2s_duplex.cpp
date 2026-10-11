@@ -164,13 +164,33 @@ void I2sDuplex::end() {
     _running = false;
 }
 
+void I2sDuplex::flushDmaBuffers() {
+    if (!_running) return;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    i2s_chan_handle_t tx_dac1 = (i2s_chan_handle_t)_txChanDac1;
+    i2s_chan_handle_t rx_adc  = (i2s_chan_handle_t)_rxChanAdc;
+    i2s_chan_handle_t tx_dac2 = (i2s_chan_handle_t)_txChanDac2;
+
+    setHardwareMute(true, true);
+    if (tx_dac1) i2s_channel_disable(tx_dac1);
+    if (tx_dac2) i2s_channel_disable(tx_dac2);
+    if (rx_adc)  i2s_channel_disable(rx_adc);
+
+    if (tx_dac2) i2s_channel_enable(tx_dac2);
+    if (rx_adc)  i2s_channel_enable(rx_adc);
+    if (tx_dac1) i2s_channel_enable(tx_dac1);
+    vTaskDelay(pdMS_TO_TICKS(5));
+    setHardwareMute(false, false);
+#endif
+}
+
 size_t I2sDuplex::readAdc(int32_t* rx_buffer, size_t frame_count) {
     if (!_running || !rx_buffer || frame_count == 0) return 0;
     i2s_chan_handle_t rx_adc = (i2s_chan_handle_t)_rxChanAdc;
     int16_t temp16[AUDIO_BLOCK_FRAMES * 2];
     size_t bytes_read = 0;
     size_t bytes_needed = frame_count * 2 * sizeof(int16_t);
-    esp_err_t err = i2s_channel_read(rx_adc, temp16, bytes_needed, &bytes_read, pdMS_TO_TICKS(50));
+    esp_err_t err = i2s_channel_read(rx_adc, temp16, bytes_needed, &bytes_read, pdMS_TO_TICKS(10));
     if (err == ESP_OK && bytes_read > 0) {
         size_t samples_read = bytes_read / sizeof(int16_t);
         for (size_t i = 0; i < samples_read; i++) {
@@ -193,7 +213,7 @@ size_t I2sDuplex::writeDac1(const int32_t* tx_buffer, size_t frame_count) {
     }
     size_t bytes_written = 0;
     size_t bytes_needed = frame_count * 2 * sizeof(int16_t);
-    esp_err_t err = i2s_channel_write(tx_dac1, temp16, bytes_needed, &bytes_written, pdMS_TO_TICKS(50));
+    esp_err_t err = i2s_channel_write(tx_dac1, temp16, bytes_needed, &bytes_written, pdMS_TO_TICKS(5));
     return (err == ESP_OK) ? (bytes_written / (2 * sizeof(int16_t))) : 0;
 }
 
@@ -210,7 +230,7 @@ size_t I2sDuplex::writeDac2(const int32_t* tx_buffer, size_t frame_count) {
     }
     size_t bytes_written = 0;
     size_t bytes_needed = frame_count * 2 * sizeof(int16_t);
-    esp_err_t err = i2s_channel_write(tx_dac2, temp16, bytes_needed, &bytes_written, pdMS_TO_TICKS(50));
+    esp_err_t err = i2s_channel_write(tx_dac2, temp16, bytes_needed, &bytes_written, pdMS_TO_TICKS(5));
     return (err == ESP_OK) ? (bytes_written / (2 * sizeof(int16_t))) : 0;
 }
 
