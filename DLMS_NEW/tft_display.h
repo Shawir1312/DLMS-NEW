@@ -59,9 +59,9 @@ private:
     bool _inEditMode;
     bool _screenLocked;
 
-    // Lock/Unlock Button Hold Timing (Home Screen: 3s lock, 4s unlock)
-    uint32_t _swHoldStartTime;
-    bool _swHoldHandled;
+    // Lock/Unlock Button Hold Timing via K0 (Home Screen: 3s lock, 4s unlock)
+    uint32_t _k0HoldStartTime;
+    bool _k0HoldHandled;
     uint8_t _lockProgressSec;
 
     // Kecerahan Layar & Timer

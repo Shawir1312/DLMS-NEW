@@ -50,8 +50,8 @@ TftDisplay::TftDisplay()
       _isInitialized(false),
       _inEditMode(false),
       _screenLocked(false),
-      _swHoldStartTime(0),
-      _swHoldHandled(false),
+      _k0HoldStartTime(0),
+      _k0HoldHandled(false),
       _lockProgressSec(0),
       _brightnessPct(90),
       _lastActivityTime(0),
@@ -427,7 +427,7 @@ void TftDisplay::renderHomeScreen() {
 
     // 3. Footer Bar
     if (_screenLocked) {
-        renderFooterBar("[KUNCI]", "Tahan Push 4s Buka", "");
+        renderFooterBar("[KUNCI]", "Tahan K0 4s Buka", "");
     } else {
         renderFooterBar("O:Kanal", "SW:Gain", "K0:Menu");
     }
@@ -1723,91 +1723,76 @@ void TftDisplay::update() {
 // LOGIKA NAVIGASI ROTARY ENCODER & K0
 // ============================================================================
 void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k0Ev, bool k0Held, bool swHeld) {
-    if (delta != 0 || swEv != BTN_NONE || k0Ev != BTN_NONE || swHeld) {
+    if (delta != 0 || swEv != BTN_NONE || k0Ev != BTN_NONE || k0Held || swHeld) {
         resetUserActivityTimer();
     }
 
-    // --- LOGIKA KUNCI / BUKA LAYAR VIA TOMBOL PUSH (ENCODER SW) ---
-    // Di Home Screen: Tahan 3 detik untuk KUNCI layar
-    // Saat Layar Terkunci: Tahan 4 detik untuk BUKA kunci
-    if (swHeld) {
-        if (_swHoldStartTime == 0) {
-            _swHoldStartTime = millis();
-            _swHoldHandled = false;
+    // --- LOGIKA KUNCI / BUKA LAYAR VIA TOMBOL FISIK K0 ---
+    // Di Home Screen: Tahan K0 3 detik untuk KUNCI layar
+    // Saat Layar Terkunci: Tahan K0 4 detik untuk BUKA kunci
+    if (k0Held) {
+        if (_k0HoldStartTime == 0) {
+            _k0HoldStartTime = millis();
+            _k0HoldHandled = false;
             _lockProgressSec = 0;
         }
 
-        uint32_t holdTime = millis() - _swHoldStartTime;
+        uint32_t holdTime = millis() - _k0HoldStartTime;
 
         if (!_screenLocked) {
-            // Penguncian hanya diaktifkan dari layar HOME
+            // Penguncian diaktifkan dari layar HOME
             if (_currentScreen == SCREEN_HOME) {
                 if (holdTime >= 1000 && holdTime < 2000 && _lockProgressSec != 1) {
                     _lockProgressSec = 1;
-                    showToast("Kunci dlm 2s...", 600);
+                    showToast("Kunci: Tahan 2s...", 600);
                 } else if (holdTime >= 2000 && holdTime < 3000 && _lockProgressSec != 2) {
                     _lockProgressSec = 2;
-                    showToast("Kunci dlm 1s...", 600);
-                } else if (holdTime >= 3000 && !_swHoldHandled) {
+                    showToast("Kunci: Tahan 1s...", 600);
+                } else if (holdTime >= 3000 && !_k0HoldHandled) {
                     _screenLocked = true;
-                    _swHoldHandled = true;
+                    _k0HoldHandled = true;
                     _inEditMode = false;
                     showToast("Layar Terkunci!", 2000);
                 }
             }
         } else {
-            // Membuka kunci layar: butuh tahan 4 detik penuh
+            // Membuka kunci layar: butuh tahan K0 selama 4 detik penuh
             if (holdTime >= 1000 && holdTime < 2000 && _lockProgressSec != 1) {
                 _lockProgressSec = 1;
-                showToast("Buka dlm 3s...", 600);
+                showToast("Buka: Tahan 3s...", 600);
             } else if (holdTime >= 2000 && holdTime < 3000 && _lockProgressSec != 2) {
                 _lockProgressSec = 2;
-                showToast("Buka dlm 2s...", 600);
+                showToast("Buka: Tahan 2s...", 600);
             } else if (holdTime >= 3000 && holdTime < 4000 && _lockProgressSec != 3) {
                 _lockProgressSec = 3;
-                showToast("Buka dlm 1s...", 600);
-            } else if (holdTime >= 4000 && !_swHoldHandled) {
+                showToast("Buka: Tahan 1s...", 600);
+            } else if (holdTime >= 4000 && !_k0HoldHandled) {
                 _screenLocked = false;
-                _swHoldHandled = true;
+                _k0HoldHandled = true;
                 showToast("Kunci Terbuka!", 2000);
             }
         }
     } else {
-        // Tombol push dilepas
-        if (_swHoldStartTime > 0 && !_swHoldHandled) {
-            uint32_t holdTime = millis() - _swHoldStartTime;
-            // Jika ditahan 1-2.9 detik di Home lalu dilepas -> Toggle MUTE kanal!
-            if (holdTime >= 1000 && holdTime < 3000 && _currentScreen == SCREEN_HOME && !_screenLocked) {
-                const DspPreset& curCfg = dspEngine.getConfig();
-                if (_homeSelectedCh < 2) {
-                    dspEngine.setInputMute(_homeSelectedCh, !curCfg.in[_homeSelectedCh].mute);
-                } else {
-                    int out_idx = _homeSelectedCh - 2;
-                    dspEngine.setOutputMute(out_idx, !curCfg.out[out_idx].mute);
-                }
-                storageManager.markConfigChanged();
-                showToast("Mute Diubah!", 1200);
-            }
-        }
-
-        _swHoldStartTime = 0;
+        // Tombol K0 dilepas
+        _k0HoldStartTime = 0;
         _lockProgressSec = 0;
-        if (_swHoldHandled) {
-            // Buang sisa event klik atau long press setelah aksi hold lock/unlock selesai
-            swEv = BTN_NONE;
-            _swHoldHandled = false;
+        if (_k0HoldHandled) {
+            // Buang sisa event klik atau long press K0 setelah aksi hold lock/unlock selesai
+            k0Ev = BTN_NONE;
+            _k0HoldHandled = false;
         }
     }
 
     // Jika layar terkunci, blokir seluruh input navigasi & setting!
     if (_screenLocked) {
-        if (!_swHoldHandled && (delta != 0 || swEv == BTN_CLICK || k0Ev == BTN_CLICK)) {
-            showToast("Terkunci! Tahan 4s", 1200);
+        if (!_k0HoldHandled && (delta != 0 || swEv == BTN_CLICK || swEv == BTN_LONG_PRESS_1S || k0Ev == BTN_CLICK)) {
+            showToast("Terkunci! Tahan K0 4s", 1200);
         }
         return;
     }
 
-    if (k0Ev == BTN_LONG_PRESS_1S) {
+    // Jika di sub-menu (bukan Home), K0 long-press 1s kembali langsung ke Home
+    if (k0Ev == BTN_LONG_PRESS_1S && _currentScreen != SCREEN_HOME) {
         setScreen(SCREEN_HOME);
         return;
     }
@@ -1841,6 +1826,19 @@ void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k
                 if (swEv == BTN_CLICK) {
                     _inEditMode = true;
                     _originalFloatVal = (_homeSelectedCh < 2) ? cfg.in[_homeSelectedCh].gain_db : cfg.out[_homeSelectedCh - 2].gain_db;
+                } else if (swEv == BTN_LONG_PRESS_1S) {
+                    // PUSH LAMA = MUTE KANAL YANG SEDANG DIPILIH!
+                    if (_homeSelectedCh < 2) {
+                        bool nextMute = !cfg.in[_homeSelectedCh].mute;
+                        dspEngine.setInputMute(_homeSelectedCh, nextMute);
+                        showToast(nextMute ? "In A/B MUTED" : "In A/B UNMUTED", 1200);
+                    } else {
+                        int out_idx = _homeSelectedCh - 2;
+                        bool nextMute = !cfg.out[out_idx].mute;
+                        dspEngine.setOutputMute(out_idx, nextMute);
+                        showToast(nextMute ? "Out MUTED" : "Out UNMUTED", 1200);
+                    }
+                    storageManager.markConfigChanged();
                 } else if (k0Ev == BTN_CLICK) {
                     setScreen(SCREEN_MAIN_MENU);
                 }
