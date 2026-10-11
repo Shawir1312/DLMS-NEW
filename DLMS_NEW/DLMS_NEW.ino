@@ -72,13 +72,14 @@ static void uiTask(void* param) {
         // 1. Update pembacaan rotary encoder dan tombol fisik
         rotaryControl.update();
 
-        int16_t delta   = rotaryControl.getEncoderDelta();
+        int16_t delta    = rotaryControl.getEncoderDelta();
         ButtonEvent swEv = rotaryControl.getEncoderButtonEvent();
         ButtonEvent k0Ev = rotaryControl.getK0ButtonEvent();
-        bool k0Held     = rotaryControl.isK0Pressed();
+        bool k0Held      = rotaryControl.isK0Pressed();
+        bool swHeld      = rotaryControl.isEncoderPressed();
 
         // 2. Dispatch navigasi layar TFT
-        tftDisplay.handleNavigation(delta, swEv, k0Ev, k0Held);
+        tftDisplay.handleNavigation(delta, swEv, k0Ev, k0Held, swHeld);
 
         // 3. Render 1 frame tampilan penuh (160x128 sprite di SRAM)
         tftDisplay.update();

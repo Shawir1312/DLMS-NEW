@@ -38,7 +38,7 @@ public:
     void drawBootScreen(uint8_t progress, const char* statusMsg);
 
     // Navigasi & Input dari Rotary Encoder & K0
-    void handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k0Ev, bool k0Held);
+    void handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k0Ev, bool k0Held, bool swHeld = false);
 
     // Kecerahan & Auto-Dim Backlight PWM di GPIO 8
     void setBrightness(uint8_t pct);
@@ -58,6 +58,11 @@ private:
     bool _isInitialized;
     bool _inEditMode;
     bool _screenLocked;
+
+    // Lock/Unlock Button Hold Timing (Home Screen: 3s lock, 4s unlock)
+    uint32_t _swHoldStartTime;
+    bool _swHoldHandled;
+    uint8_t _lockProgressSec;
 
     // Kecerahan Layar & Timer
     uint8_t _brightnessPct;

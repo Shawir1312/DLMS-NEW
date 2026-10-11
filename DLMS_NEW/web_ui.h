@@ -433,9 +433,43 @@ function showToast(msg) {
   setTimeout(() => { t.style.display = 'none'; }, 2200);
 }
 
+let lastConfigVer = -1;
+let isUserEditing = false;
+let configSyncTimer = null;
+
+function scheduleConfigSync() {
+  if (configSyncTimer) return;
+  configSyncTimer = setTimeout(() => {
+    configSyncTimer = null;
+    fetchConfig();
+  }, 120);
+}
+
 function initLiveTelemetry() {
   fetchConfig();
-  setInterval(pollMeters, 100); // 10Hz live VU meter
+  setInterval(pollMeters, 100); // 10Hz live telemetry & VU meter
+
+  // Deteksi interaksi pengguna agar slider yang sedang digeser tidak terganggu
+  document.addEventListener('focusin', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) {
+      isUserEditing = true;
+    }
+  });
+  document.addEventListener('focusout', () => {
+    isUserEditing = false;
+    scheduleConfigSync();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'range') {
+      isUserEditing = true;
+    }
+  });
+  document.addEventListener('pointerup', () => {
+    setTimeout(() => {
+      isUserEditing = false;
+      scheduleConfigSync();
+    }, 150);
+  });
 }
 
 function pollMeters() {
@@ -452,6 +486,18 @@ function updateMeters(m) {
   document.getElementById('ws-badge').innerText = '● LIVE';
   document.getElementById('ws-badge').className = 'badge live';
   if (m.cpu !== undefined) document.getElementById('cpu-badge').innerText = `CPU: ${Math.round(m.cpu)}%`;
+
+  // Sinkronisasi otomatis real-time jika ada perubahan parameter di LCD / Hardware
+  if (m.ver !== undefined) {
+    if (lastConfigVer === -1) {
+      lastConfigVer = m.ver;
+    } else if (m.ver !== lastConfigVer) {
+      lastConfigVer = m.ver;
+      if (!isUserEditing) {
+        scheduleConfigSync();
+      }
+    }
+  }
 
   if (m.in_peak) {
     for (let i = 0; i < 2; i++) {

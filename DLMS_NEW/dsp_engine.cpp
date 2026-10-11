@@ -62,6 +62,7 @@ DspEngine::DspEngine()
         _limiterMinGr[i] = 1.0f;
     }
     _meterDecimateCounter = 0;
+    _configVersion = 1;
 }
 
 DspEngine::~DspEngine() {
@@ -192,6 +193,7 @@ void DspEngine::setConfig(const DspPreset& config) {
         _polarityTarget[i] = _config.out[i].polarity_invert ? -1.0f : 1.0f;
     }
     _pendingConfigUpdate = true;
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -207,6 +209,7 @@ void DspEngine::setInputGain(uint8_t in_ch, float gain_db) {
     portENTER_CRITICAL(&_paramMux);
     _config.in[in_ch].gain_db = gain_db;
     _inTargetGainLinear[in_ch] = _config.in[in_ch].mute ? 0.0f : powf(10.0f, gain_db / 20.0f);
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -215,6 +218,7 @@ void DspEngine::setInputMute(uint8_t in_ch, bool mute) {
     portENTER_CRITICAL(&_paramMux);
     _config.in[in_ch].mute = mute;
     _inTargetGainLinear[in_ch] = mute ? 0.0f : powf(10.0f, _config.in[in_ch].gain_db / 20.0f);
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -235,6 +239,7 @@ void DspEngine::setInputPeq(uint8_t in_ch, uint8_t band, bool enabled, uint8_t t
     _config.in[in_ch].peq[band].gain_db = gain_db;
     _config.in[in_ch].peq[band].q = q;
     _config.in[in_ch].peq[band].bypass = bypass;
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateSingleInputPeq(in_ch, band);
@@ -248,6 +253,7 @@ void DspEngine::setOutputSource(uint8_t out_ch, uint8_t source) {
     if (out_ch >= 4 || source > 3) return;
     portENTER_CRITICAL(&_paramMux);
     _config.out[out_ch].source = source;
+    _configVersion++;
     // Routing source dibiarkan independen agar Out 1 bisa In A (L) dan Out 2 bisa In B (R)
     portEXIT_CRITICAL(&_paramMux);
 }
@@ -266,6 +272,7 @@ void DspEngine::setOutputGain(uint8_t out_ch, float gain_db) {
         _config.out[p].gain_db = gain_db;
         _outTargetGainLinear[p] = (_config.out[p].mute || _config.master_mute) ? 0.0f : powf(10.0f, gain_db / 20.0f);
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -279,6 +286,7 @@ void DspEngine::setOutputMute(uint8_t out_ch, bool mute) {
         _config.out[p].mute = mute;
         _outTargetGainLinear[p] = (mute || _config.master_mute) ? 0.0f : powf(10.0f, _config.out[p].gain_db / 20.0f);
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -292,6 +300,7 @@ void DspEngine::setOutputPolarity(uint8_t out_ch, bool invert) {
         _config.out[p].polarity_invert = invert;
         _polarityTarget[p] = invert ? -1.0f : 1.0f;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 
@@ -312,6 +321,7 @@ void DspEngine::setOutputHpf(uint8_t out_ch, bool enabled, float freq, uint8_t t
         _config.out[p].hpf.type = type;
         _config.out[p].hpf.slope = slope;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateSingleOutputHpf(out_ch);
@@ -337,6 +347,7 @@ void DspEngine::setOutputLpf(uint8_t out_ch, bool enabled, float freq, uint8_t t
         _config.out[p].lpf.type = type;
         _config.out[p].lpf.slope = slope;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateSingleOutputLpf(out_ch);
@@ -371,6 +382,7 @@ void DspEngine::setOutputPeq(uint8_t out_ch, uint8_t band, bool enabled, uint8_t
         _config.out[p].peq[band].q = q;
         _config.out[p].peq[band].bypass = bypass;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateSingleOutputPeq(out_ch, band);
@@ -394,6 +406,7 @@ void DspEngine::setOutputDelay(uint8_t out_ch, float delay_ms, uint8_t unit, flo
         _config.out[p].delay.unit = unit;
         _config.out[p].delay.temp_c = temp_c;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateDelaySamples(out_ch);
@@ -424,6 +437,7 @@ void DspEngine::setOutputLimiter(uint8_t out_ch, bool enabled, float threshold_d
         _config.out[p].limiter.attack_ms = attack_ms;
         _config.out[p].limiter.release_ms = release_ms;
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 
     updateLimiterCoeffs(out_ch);
@@ -438,6 +452,7 @@ void DspEngine::setMasterMute(bool mute) {
     for (int i = 0; i < 4; i++) {
         _outTargetGainLinear[i] = (mute || _config.out[i].mute) ? 0.0f : powf(10.0f, _config.out[i].gain_db / 20.0f);
     }
+    _configVersion++;
     portEXIT_CRITICAL(&_paramMux);
 }
 

@@ -60,6 +60,7 @@ public:
     void clearClipFlags();
 
     uint32_t getSampleRate() const { return _sampleRate; }
+    uint32_t getConfigVersion() const { return _configVersion; }
 
 private:
     uint32_t _sampleRate;
@@ -67,6 +68,7 @@ private:
 
     DspPreset _config;
     bool _pendingConfigUpdate;
+    volatile uint32_t _configVersion;
 
     // Linear gains dengan 10ms smooth ramp
     float _inGainLinear[2];

@@ -50,6 +50,9 @@ TftDisplay::TftDisplay()
       _isInitialized(false),
       _inEditMode(false),
       _screenLocked(false),
+      _swHoldStartTime(0),
+      _swHoldHandled(false),
+      _lockProgressSec(0),
       _brightnessPct(90),
       _lastActivityTime(0),
       _isDimmed(false),
@@ -253,13 +256,26 @@ void TftDisplay::renderHeaderBar(const char* title, const char* rightTag, uint16
 void TftDisplay::renderFooterBar(const char* hint1, const char* hint2, const char* hint3) {
     canvas.drawFastHLine(0, 116, 160, COLOR_CARD_BORDER);
     canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_DARK_GRAY);
 
-    if (hint1) { canvas.setCursor(4, 119); canvas.print(hint1); }
-    if (hint2) { canvas.setCursor(62, 119); canvas.print(hint2); }
-    if (hint3) {
-        int16_t len = strlen(hint3);
-        canvas.setCursor(156 - len * 6, 119);
+    if (hint1 && strlen(hint1) > 0) {
+        canvas.setTextColor(COLOR_CYAN_DIM);
+        canvas.setCursor(2, 119);
+        canvas.print(hint1);
+    }
+    if (hint2 && strlen(hint2) > 0) {
+        canvas.setTextColor(COLOR_GRAY);
+        int16_t len2 = strlen(hint2);
+        int16_t x2 = 80 - (len2 * 6) / 2;
+        if (x2 < 50) x2 = 50;
+        canvas.setCursor(x2, 119);
+        canvas.print(hint2);
+    }
+    if (hint3 && strlen(hint3) > 0) {
+        canvas.setTextColor(COLOR_DARK_GRAY);
+        int16_t len3 = strlen(hint3);
+        int16_t x3 = 158 - (len3 * 6);
+        if (x3 < 112) x3 = 112;
+        canvas.setCursor(x3, 119);
         canvas.print(hint3);
     }
 }
@@ -272,18 +288,29 @@ void TftDisplay::renderHomeScreen() {
     VuMeterData m = dspEngine.getMeterData();
     uint32_t now = millis();
 
-    // 1. Header Bar: "● 01 Konser Hall" + WiFi + "CPU 38%"
-    canvas.fillCircle(5, 6, 2, COLOR_METER_GRN); // Green status dot
-    canvas.setTextSize(1);
-    canvas.setTextColor(COLOR_CYAN);
-    canvas.setCursor(10, 2);
-    canvas.printf("%s", (cfg.setup.out_mode == 0 ? "M1" : "M2"));
-    canvas.setTextColor(COLOR_GRAY);
-    canvas.setCursor(24, 2);
-    canvas.printf("%02d", storageManager.getCurrentSlot());
-    canvas.setTextColor(COLOR_WHITE);
-    canvas.setCursor(38, 2);
-    canvas.print(cfg.name);
+    // 1. Header Bar: "● 01 Konser Hall" + WiFi + "CPU 38%" atau Badge "LOCKED" jika terkunci
+    if (_screenLocked) {
+        canvas.fillRoundRect(2, 1, 38, 9, 2, 0xF9A7); // Amber/Red badge
+        canvas.setTextSize(1);
+        canvas.setTextColor(COLOR_BG);
+        canvas.setCursor(4, 2);
+        canvas.print("LOCKED");
+        canvas.setTextColor(COLOR_WHITE);
+        canvas.setCursor(44, 2);
+        canvas.print(cfg.name);
+    } else {
+        canvas.fillCircle(5, 6, 2, COLOR_METER_GRN); // Green status dot
+        canvas.setTextSize(1);
+        canvas.setTextColor(COLOR_CYAN);
+        canvas.setCursor(10, 2);
+        canvas.printf("%s", (cfg.setup.out_mode == 0 ? "M1" : "M2"));
+        canvas.setTextColor(COLOR_GRAY);
+        canvas.setCursor(24, 2);
+        canvas.printf("%02d", storageManager.getCurrentSlot());
+        canvas.setTextColor(COLOR_WHITE);
+        canvas.setCursor(38, 2);
+        canvas.print(cfg.name);
+    }
 
     drawWifiIcon(122, 3, COLOR_CYAN);
     canvas.setTextColor(COLOR_GRAY);
@@ -399,7 +426,11 @@ void TftDisplay::renderHomeScreen() {
     }
 
     // 3. Footer Bar
-    renderFooterBar("Putar: kanal", "Tekan: gain", "K0: menu");
+    if (_screenLocked) {
+        renderFooterBar("[KUNCI]", "Tahan Push 4s Buka", "");
+    } else {
+        renderFooterBar("O:Kanal", "SW:Gain", "K0:Menu");
+    }
 }
 
 // ============================================================================
@@ -480,7 +511,7 @@ void TftDisplay::renderRoutingScreen() {
         canvas.print("M");
     }
 
-    renderFooterBar("Putar: pilih", "Tekan: edit", "K0: kembali");
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Back");
 }
 
 // ============================================================================
@@ -535,7 +566,7 @@ void TftDisplay::renderMainMenu() {
         canvas.print(shortSub);
     }
 
-    renderFooterBar("Putar: pilih", "Tekan: buka", "K0: Home");
+    renderFooterBar("O:Pilih", "SW:Buka", "K0:Home");
 }
 
 // ============================================================================
@@ -556,8 +587,8 @@ void TftDisplay::renderModeSelectScreen() {
 
     canvas.setTextSize(1);
     canvas.setTextColor(isSel1 ? COLOR_CYAN : COLOR_WHITE);
-    canvas.setCursor(8, y1 + 4);
-    canvas.print("[1] MODE 1: STEREO PAIR");
+    canvas.setCursor(6, y1 + 4);
+    canvas.print("[1] MODE 1: PAIR");
     if (isAct1) {
         canvas.setTextColor(COLOR_METER_GRN);
         canvas.setCursor(114, y1 + 4);
@@ -565,13 +596,13 @@ void TftDisplay::renderModeSelectScreen() {
     }
 
     canvas.setTextColor(COLOR_GRAY);
-    canvas.setCursor(8, y1 + 16);
-    canvas.print("OUT 1 & 2 : 1 Settingan (Linked)");
-    canvas.setCursor(8, y1 + 26);
-    canvas.print("OUT 3 & 4 : 1 Settingan (Linked)");
+    canvas.setCursor(6, y1 + 16);
+    canvas.print("OUT 1-2 & 3-4 Terhubung");
+    canvas.setCursor(6, y1 + 26);
+    canvas.print("Settingan per pasang");
     canvas.setTextColor(COLOR_CYAN_DIM);
-    canvas.setCursor(8, y1 + 36);
-    canvas.print("Cocok: Stereo 2-Way (Sub & Mid/Hi)");
+    canvas.setCursor(6, y1 + 36);
+    canvas.print("Stereo Sub + Mid/High");
 
     // Card 2: Mode 2 - Individual 4-Way
     int16_t y2 = 66;
@@ -582,8 +613,8 @@ void TftDisplay::renderModeSelectScreen() {
     canvas.drawRoundRect(3, y2, 154, 46, 4, isSel2 ? COLOR_CYAN : COLOR_CARD_BORDER);
 
     canvas.setTextColor(isSel2 ? COLOR_CYAN : COLOR_WHITE);
-    canvas.setCursor(8, y2 + 4);
-    canvas.print("[2] MODE 2: INDIVIDUAL 4-WAY");
+    canvas.setCursor(6, y2 + 4);
+    canvas.print("[2] MODE 2: 4-WAY");
     if (isAct2) {
         canvas.setTextColor(COLOR_METER_GRN);
         canvas.setCursor(114, y2 + 4);
@@ -591,15 +622,15 @@ void TftDisplay::renderModeSelectScreen() {
     }
 
     canvas.setTextColor(COLOR_GRAY);
-    canvas.setCursor(8, y2 + 16);
-    canvas.print("OUT 1, 2, 3, 4 : Setting Bebas");
-    canvas.setCursor(8, y2 + 26);
-    canvas.print("Tiap output diatur terpisah");
+    canvas.setCursor(6, y2 + 16);
+    canvas.print("OUT 1..4 Bebas Mandiri");
+    canvas.setCursor(6, y2 + 26);
+    canvas.print("Tiap output terpisah");
     canvas.setTextColor(COLOR_CYAN_DIM);
-    canvas.setCursor(8, y2 + 36);
-    canvas.print("Cocok: 3-Way/4-Way Individual");
+    canvas.setCursor(6, y2 + 36);
+    canvas.print("3-Way / 4-Way Sistem");
 
-    renderFooterBar("Putar: pilih", "Tekan: aktifkan", "K0: kembali");
+    renderFooterBar("O:Pilih", "SW:Pilih", "K0:Back");
 }
 
 // ============================================================================
@@ -847,11 +878,7 @@ void TftDisplay::renderCrossoverScreen() {
     canvas.setCursor(100, lpfSlopeY + 2);
     canvas.printf("%d dB/okt", cfg.out[ch].lpf.slope);
 
-    if (_inEditMode) {
-        renderFooterBar("Putar: ubah nilai", "Tekan: simpan", "K0: batal");
-    } else {
-        renderFooterBar("Putar: pilih item", "Tekan: edit", "K0: kembali");
-    }
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Back");
 }
 
 // ============================================================================
@@ -1137,11 +1164,7 @@ void TftDisplay::renderPeqScreen() {
     canvas.setCursor(bypX + 5, bypY + 4);
     canvas.print(actP.bypass ? "BYPASS" : "ACTIVE");
 
-    if (_inEditMode) {
-        renderFooterBar("Putar: ubah nilai", "Tekan: simpan", "K0: batal");
-    } else {
-        renderFooterBar("Putar: pilih item", "Tekan: edit", "K0: kembali");
-    }
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Back");
 }
 
 // ============================================================================
@@ -1165,14 +1188,14 @@ void TftDisplay::renderLimiterScreen() {
         canvas.setTextColor(COLOR_CH_MID);
         canvas.setCursor(6, y + 3);
         if (isPairMode) {
-            canvas.printf("OUT %d [%s]", i + 1, (i < 2) ? "Pair 1-2" : "Pair 3-4");
+            canvas.printf("OUT %s", (i < 2) ? "1-2" : "3-4");
         } else {
-            canvas.printf("OUT %d [%s]", i + 1, cfg.out[i].name);
+            canvas.printf("OUT %d", i + 1);
         }
 
         canvas.setTextColor(COLOR_WHITE);
-        canvas.setCursor(85, y + 3);
-        canvas.printf("Thresh:%+.1fdB", cfg.out[i].limiter.threshold_db);
+        canvas.setCursor(76, y + 3);
+        canvas.printf("Thr:%+.1fdB", cfg.out[i].limiter.threshold_db);
 
         // Meter Gain Reduction
         canvas.fillRect(6, y + 13, 144, 4, COLOR_DARK_GRAY);
@@ -1183,7 +1206,7 @@ void TftDisplay::renderLimiterScreen() {
             canvas.fillRect(6, y + 13, gw, 4, COLOR_LIM_BADGE);
         }
     }
-    renderFooterBar("Putar: pilih", "Tekan: edit", "K0: kembali");
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Back");
 }
 
 void TftDisplay::renderDelayScreen() {
@@ -1203,9 +1226,9 @@ void TftDisplay::renderDelayScreen() {
         canvas.setTextColor(COLOR_CH_MID);
         canvas.setCursor(6, y + 3);
         if (isPairMode) {
-            canvas.printf("OUT %d [%s]", i + 1, (i < 2) ? "Pair 1-2" : "Pair 3-4");
+            canvas.printf("OUT %s", (i < 2) ? "1-2" : "3-4");
         } else {
-            canvas.printf("OUT %d [%s]", i + 1, cfg.out[i].name);
+            canvas.printf("OUT %d", i + 1);
         }
 
         float c = 331.3f + 0.606f * cfg.out[i].delay.temp_c;
@@ -1215,7 +1238,7 @@ void TftDisplay::renderDelayScreen() {
         canvas.setCursor(6, y + 12);
         canvas.printf("%.2f ms (%.2fm)", cfg.out[i].delay.delay_ms, dist_m);
     }
-    renderFooterBar("Putar: pilih", "Tekan: edit", "K0: kembali");
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Back");
 }
 
 void TftDisplay::renderPolarityScreen() {
@@ -1235,17 +1258,17 @@ void TftDisplay::renderPolarityScreen() {
         canvas.setTextColor(COLOR_CH_MID);
         canvas.setCursor(6, y + 6);
         if (isPairMode) {
-            canvas.printf("OUT %d [%s]", i + 1, (i < 2) ? "Pair 1-2" : "Pair 3-4");
+            canvas.printf("OUT %d (Pair %s)", i + 1, (i < 2) ? "1-2" : "3-4");
         } else {
-            canvas.printf("OUT %d [%s]", i + 1, cfg.out[i].name);
+            canvas.printf("OUT %d (%s)", i + 1, cfg.out[i].name);
         }
 
         bool inv = cfg.out[i].polarity_invert;
         canvas.setTextColor(inv ? COLOR_CH_SUB : COLOR_CH_MID);
-        canvas.setCursor(95, y + 6);
-        canvas.printf("%s (%s)", inv ? "INVERT" : "NORMAL", inv ? "180" : "0");
+        canvas.setCursor(106, y + 6);
+        canvas.printf("%s", inv ? "INV 180" : "NORM 0");
     }
-    renderFooterBar("Putar: pilih", "Tekan: balik", "K0: kembali");
+    renderFooterBar("O:Kanal", "SW:Balik", "K0:Back");
 }
 
 void TftDisplay::renderPresetScreen() {
@@ -1337,11 +1360,7 @@ void TftDisplay::renderPresetScreen() {
         else canvas.print("Batal / kembali");
     }
 
-    if (_presetActionActive) {
-        renderFooterBar("Putar: opsi", "Tekan: konfirmasi", "K0: batal");
-    } else {
-        renderFooterBar("Putar: pilih slot", "Tekan: buka opsi", "K0: menu");
-    }
+    renderFooterBar(_presetActionActive ? "O:Aksi" : "O:Slot", _presetActionActive ? "SW:Pilih" : "SW:Aksi", _presetActionActive ? "K0:Batal" : "K0:Menu");
 }
 
 void TftDisplay::renderSetupScreen() {
@@ -1446,12 +1465,7 @@ void TftDisplay::renderSetupScreen() {
     canvas.setCursor(85, 100);
     canvas.print(_resetConfirmActive ? "KLIK LAGI >" : "Tahan 2 dtk >");
 
-    // Footer
-    if (_inEditMode) {
-        renderFooterBar("Putar: ubah nilai", "Tekan: simpan", "K0: batal");
-    } else {
-        renderFooterBar("Putar: pilih", "Tekan: ubah", "K0: menu");
-    }
+    renderFooterBar(_inEditMode ? "O:Ubah" : "O:Pilih", _inEditMode ? "SW:Simpan" : "SW:Edit", _inEditMode ? "K0:Batal" : "K0:Menu");
 }
 
 void TftDisplay::renderToast() {
@@ -1708,19 +1722,87 @@ void TftDisplay::update() {
 // ============================================================================
 // LOGIKA NAVIGASI ROTARY ENCODER & K0
 // ============================================================================
-void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k0Ev, bool k0Held) {
-    if (delta != 0 || swEv != BTN_NONE || k0Ev != BTN_NONE) {
+void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k0Ev, bool k0Held, bool swHeld) {
+    if (delta != 0 || swEv != BTN_NONE || k0Ev != BTN_NONE || swHeld) {
         resetUserActivityTimer();
     }
 
-    if (swEv == BTN_DUAL_HOLD_2S || k0Ev == BTN_DUAL_HOLD_2S) {
-        toggleScreenLock();
-        return;
+    // --- LOGIKA KUNCI / BUKA LAYAR VIA TOMBOL PUSH (ENCODER SW) ---
+    // Di Home Screen: Tahan 3 detik untuk KUNCI layar
+    // Saat Layar Terkunci: Tahan 4 detik untuk BUKA kunci
+    if (swHeld) {
+        if (_swHoldStartTime == 0) {
+            _swHoldStartTime = millis();
+            _swHoldHandled = false;
+            _lockProgressSec = 0;
+        }
+
+        uint32_t holdTime = millis() - _swHoldStartTime;
+
+        if (!_screenLocked) {
+            // Penguncian hanya diaktifkan dari layar HOME
+            if (_currentScreen == SCREEN_HOME) {
+                if (holdTime >= 1000 && holdTime < 2000 && _lockProgressSec != 1) {
+                    _lockProgressSec = 1;
+                    showToast("Kunci dlm 2s...", 600);
+                } else if (holdTime >= 2000 && holdTime < 3000 && _lockProgressSec != 2) {
+                    _lockProgressSec = 2;
+                    showToast("Kunci dlm 1s...", 600);
+                } else if (holdTime >= 3000 && !_swHoldHandled) {
+                    _screenLocked = true;
+                    _swHoldHandled = true;
+                    _inEditMode = false;
+                    showToast("Layar Terkunci!", 2000);
+                }
+            }
+        } else {
+            // Membuka kunci layar: butuh tahan 4 detik penuh
+            if (holdTime >= 1000 && holdTime < 2000 && _lockProgressSec != 1) {
+                _lockProgressSec = 1;
+                showToast("Buka dlm 3s...", 600);
+            } else if (holdTime >= 2000 && holdTime < 3000 && _lockProgressSec != 2) {
+                _lockProgressSec = 2;
+                showToast("Buka dlm 2s...", 600);
+            } else if (holdTime >= 3000 && holdTime < 4000 && _lockProgressSec != 3) {
+                _lockProgressSec = 3;
+                showToast("Buka dlm 1s...", 600);
+            } else if (holdTime >= 4000 && !_swHoldHandled) {
+                _screenLocked = false;
+                _swHoldHandled = true;
+                showToast("Kunci Terbuka!", 2000);
+            }
+        }
+    } else {
+        // Tombol push dilepas
+        if (_swHoldStartTime > 0 && !_swHoldHandled) {
+            uint32_t holdTime = millis() - _swHoldStartTime;
+            // Jika ditahan 1-2.9 detik di Home lalu dilepas -> Toggle MUTE kanal!
+            if (holdTime >= 1000 && holdTime < 3000 && _currentScreen == SCREEN_HOME && !_screenLocked) {
+                const DspPreset& curCfg = dspEngine.getConfig();
+                if (_homeSelectedCh < 2) {
+                    dspEngine.setInputMute(_homeSelectedCh, !curCfg.in[_homeSelectedCh].mute);
+                } else {
+                    int out_idx = _homeSelectedCh - 2;
+                    dspEngine.setOutputMute(out_idx, !curCfg.out[out_idx].mute);
+                }
+                storageManager.markConfigChanged();
+                showToast("Mute Diubah!", 1200);
+            }
+        }
+
+        _swHoldStartTime = 0;
+        _lockProgressSec = 0;
+        if (_swHoldHandled) {
+            // Buang sisa event klik atau long press setelah aksi hold lock/unlock selesai
+            swEv = BTN_NONE;
+            _swHoldHandled = false;
+        }
     }
 
+    // Jika layar terkunci, blokir seluruh input navigasi & setting!
     if (_screenLocked) {
-        if (delta != 0 || swEv == BTN_CLICK || k0Ev == BTN_CLICK) {
-            showToast("Terkunci: K0+SW 2s", 1200);
+        if (!_swHoldHandled && (delta != 0 || swEv == BTN_CLICK || k0Ev == BTN_CLICK)) {
+            showToast("Terkunci! Tahan 4s", 1200);
         }
         return;
     }
@@ -1746,9 +1828,7 @@ void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k
                 }
                 storageManager.markConfigChanged();
 
-                if (swEv == BTN_CLICK) {
-                    _inEditMode = false;
-                } else if (k0Ev == BTN_CLICK) {
+                if (swEv == BTN_CLICK || k0Ev == BTN_CLICK) {
                     _inEditMode = false;
                 }
             } else {
@@ -1761,13 +1841,6 @@ void TftDisplay::handleNavigation(int16_t delta, ButtonEvent swEv, ButtonEvent k
                 if (swEv == BTN_CLICK) {
                     _inEditMode = true;
                     _originalFloatVal = (_homeSelectedCh < 2) ? cfg.in[_homeSelectedCh].gain_db : cfg.out[_homeSelectedCh - 2].gain_db;
-                } else if (swEv == BTN_LONG_PRESS_1S) {
-                    if (_homeSelectedCh < 2) dspEngine.setInputMute(_homeSelectedCh, !cfg.in[_homeSelectedCh].mute);
-                    else {
-                        int out_idx = _homeSelectedCh - 2;
-                        dspEngine.setOutputMute(out_idx, !cfg.out[out_idx].mute);
-                    }
-                    storageManager.markConfigChanged();
                 } else if (k0Ev == BTN_CLICK) {
                     setScreen(SCREEN_MAIN_MENU);
                 }

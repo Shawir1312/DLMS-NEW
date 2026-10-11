@@ -24,7 +24,7 @@ WebServerDsp::WebServerDsp()
     : _isRunning(false),
       _wifiMode(DSP_WIFI_AP),
       _isApMode(true),
-      _apSsid("DLMS-DSP-AUDIO")
+      _apSsid("DLMS-DSP-SHAWIR")
 {
 }
 
@@ -143,6 +143,7 @@ void WebServerDsp::setupRoutes() {
 
         doc["cpu"] = round(m.cpu_usage_pct);
         doc["uptime"] = m.uptime_sec;
+        doc["ver"] = dspEngine.getConfigVersion();
 
         JsonArray inP = doc["in_peak"].to<JsonArray>();
         inP.add(round(m.in_peak_db[0] * 10.0f) / 10.0f);
